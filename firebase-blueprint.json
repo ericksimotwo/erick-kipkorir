@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "Department": {
+      "title": "Department",
+      "description": "An academic department within the institution.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the department" }
+      },
+      "required": ["name"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "An academic course offered by a department.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the course" },
+        "departmentId": { "type": "string", "description": "Reference to the department" }
+      },
+      "required": ["name", "departmentId"]
+    },
+    "Unit": {
+      "title": "Unit",
+      "description": "A specific subject or unit within a course.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the unit" },
+        "courseId": { "type": "string", "description": "Reference to the course" }
+      },
+      "required": ["name", "courseId"]
+    },
+    "User": {
+      "title": "User",
+      "description": "System user with role-based permissions.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "Email address" },
+        "role": { "type": "string", "description": "One of: class_rep, trainer, hod, deputy_principal" },
+        "departmentId": { "type": "string", "description": "Department the user belongs to (optional for Deputy Principal)" },
+        "courseId": { "type": "string", "description": "Course the ClassRep belongs to (optional)" }
+      },
+      "required": ["name", "email", "role"]
+    },
+    "MissedLesson": {
+      "title": "Missed Lesson",
+      "description": "A report of a lesson that was not taught.",
+      "type": "object",
+      "properties": {
+        "unitId": { "type": "string" },
+        "trainerId": { "type": "string" },
+        "classRepId": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "week": { "type": "integer" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["PENDING_VERIFICATION", "VERIFIED_MISSED", "REJECTED", "RECOVERY_ACTIVE", "COMPLETED"] },
+        "trainerResponse": { "type": "string", "description": "Trainer's response (confirmed/disputed)" },
+        "trainerComment": { "type": "string" },
+        "hodComment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["unitId", "trainerId", "classRepId", "departmentId", "week", "status"]
+    },
+    "Recovery": {
+      "title": "Recovery",
+      "description": "Details about the recovery process for a missed lesson.",
+      "type": "object",
+      "properties": {
+        "missedLessonId": { "type": "string" },
+        "status": { "type": "string", "enum": ["INACTIVE", "ACTIVE", "COMPLETED"] },
+        "sessionPlanUrl": { "type": "string" },
+        "attendanceUrl": { "type": "string" },
+        "classRepConfirmation": { "type": "boolean" },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["missedLessonId", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification for users.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["UNREAD", "READ"] },
+        "type": { "type": "string" },
+        "referenceId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "message", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/departments/{departmentId}": { "schema": "Department", "description": "Institutional departments" },
+    "/courses/{courseId}": { "schema": "Course", "description": "Academic courses" },
+    "/units/{unitId}": { "schema": "Unit", "description": "Academic units" },
+    "/users/{userId}": { "schema": "User", "description": "User profiles" },
+    "/missed_lessons/{lessonId}": { "schema": "MissedLesson", "description": "Missed lesson reports" },
+    "/recoveries/{recoveryId}": { "schema": "Recovery", "description": "Recovery management records" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" }
+  }
+}

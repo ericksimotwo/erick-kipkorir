@@ -1,0 +1,6 @@
+{
+  "name": "Lesson Recovery Management System",
+  "description": "A centralized platform for tracking missed lessons, managing recovery workflows, and ensuring academic accountability with role-based access for students, trainers, HODs, and Deputy Principals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

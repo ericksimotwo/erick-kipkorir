@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && currentUser().role == role;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email', 'role']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email == request.auth.token.email &&
+             data.role in ['class_rep', 'trainer', 'hod', 'deputy_principal'];
+    }
+
+    function isValidMissedLesson(data) {
+      return data.keys().hasAll(['unitId', 'trainerId', 'classRepId', 'departmentId', 'week', 'status', 'createdAt']) &&
+             isValidId(data.unitId) && isValidId(data.trainerId) &&
+             data.classRepId == request.auth.uid &&
+             data.week is int && data.week > 0 && data.week <= 52 &&
+             data.status in ['PENDING_VERIFICATION', 'VERIFIED_MISSED', 'REJECTED', 'RECOVERY_ACTIVE', 'COMPLETED'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidRecovery(data) {
+      return data.keys().hasAll(['missedLessonId', 'status']) &&
+             isValidId(data.missedLessonId) &&
+             data.status in ['INACTIVE', 'ACTIVE', 'COMPLETED'];
+    }
+
+    // --- Match Blocks ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if hasRole('hod') || hasRole('deputy_principal');
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'departmentId', 'courseId']) &&
+                      incoming().role == existing().role; // Immutable role
+    }
+
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('deputy_principal');
+    }
+
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('deputy_principal') || hasRole('hod');
+    }
+
+    match /units/{unitId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('deputy_principal') || hasRole('hod');
+    }
+
+    match /missed_lessons/{lessonId} {
+      allow read: if isSignedIn() && (
+        hasRole('deputy_principal') || 
+        (hasRole('hod') && currentUser().departmentId == existing().departmentId) ||
+        isOwner(existing().classRepId) ||
+        isOwner(existing().trainerId)
+      );
+      
+      allow create: if hasRole('class_rep') && isValidMissedLesson(incoming()) && 
+                    exists(/databases/$(database)/documents/units/$(incoming().unitId)) &&
+                    exists(/databases/$(database)/documents/users/$(incoming().trainerId));
+
+      allow update: if isSignedIn() && (
+        // Trainer Response
+        (isOwner(existing().trainerId) && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['trainerResponse', 'trainerComment']) &&
+         existing().status == 'PENDING_VERIFICATION') ||
+        
+        // HOD Verification
+        (hasRole('hod') && currentUser().departmentId == existing().departmentId &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'hodComment']) &&
+         incoming().status in ['VERIFIED_MISSED', 'REJECTED']) ||
+         
+        // Recovery Activation/Completion Status Updates
+        (hasRole('hod') && currentUser().departmentId == existing().departmentId &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+
+        // Deputy Principal Override
+        (hasRole('deputy_principal') && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'hodComment'])) ||
+
+        // Edit Report Details (ClassRep or HOD)
+        ((isOwner(existing().classRepId) || (hasRole('hod') && currentUser().departmentId == existing().departmentId)) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['unitId', 'trainerId', 'week']) &&
+         existing().status == 'PENDING_VERIFICATION' &&
+         isValidId(incoming().unitId) && isValidId(incoming().trainerId) && incoming().week is int)
+      );
+    }
+
+    match /recoveries/{recoveryId} {
+      allow read: if isSignedIn();
+      allow create: if hasRole('hod'); // HOD activates recovery
+      allow update: if isSignedIn() && (
+        // Trainer uploads documents
+        (isOwner(get(/databases/$(database)/documents/missed_lessons/$(existing().missedLessonId)).data.trainerId) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['sessionPlanUrl', 'attendanceUrl', 'status', 'updatedAt']) &&
+         incoming().updatedAt == request.time) ||
+        
+        // ClassRep confirmation
+        (isOwner(get(/databases/$(database)/documents/missed_lessons/$(existing().missedLessonId)).data.classRepId) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['classRepConfirmation'])) ||
+
+        // HOD Final Approval
+        (hasRole('hod') && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      );
+    }
+
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && isOwner(existing().userId);
+      allow create: if isSignedIn(); // Any user action can trigger a notification (usually via cloud functions, but we simulate in-app here)
+      allow update: if isSignedIn() && isOwner(existing().userId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+    }
+  }
+}
